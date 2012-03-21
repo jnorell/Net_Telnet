@@ -22,7 +22,7 @@ and check status or reboot; I don't know how it would fair in handling
 long-running connections or in more complex applications.
 
     <?php
-    require ('Net_Telnet.php');
+    require_once "Net/Telnet.php";
 
     try {
         $t = new Net_Telnet('10.15.20.25');
@@ -51,7 +51,7 @@ Source Code is available at github:
 
     https://github.com/jnorell/Net_Telnet
 
-There is currently no packaging for PEAR or anything else.
+There is currently no packaging for PEAR or otherwise.
 
 Reporting Bugs
 --------------
