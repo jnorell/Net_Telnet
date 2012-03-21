@@ -1,0 +1,89 @@
+Net_Telnet
+==========
+
+Net_Telnet provides a PHP implementation of the TELNET protocol.
+
+RFCs
+----
+
+Net_Telnet implements the following:
+
+* RFC 854  TELNET Protocol Specification
+* RFC 855  TELNET Option Specification
+* RFC 856  TELNET Binary Transmission
+* RFC 857  TELNET ECHO Option
+* RFC 858  TELNET SUPPRESS GO AHEAD option
+
+Use
+---
+
+Net_Telnet has been used for short-running scripts, eg. to login to a device
+and check status or reboot; I don't know how it would fair in handling
+long-running connections or in more complex applications.
+
+    <?php
+    require ('Net_Telnet.php');
+
+    try {
+        $t = new Net_Telnet('10.15.20.25');
+        $t->connect();
+        $t->login( array(
+            'login_prompt'  => '',
+            'login          => '',
+            'password'      => 'cisco_password',
+            'prompt'        => '> ',
+        );
+        $t->cmd('show version');
+        $t->cmd('traceroute github.com');
+        $t->disconnect();
+    }
+    catch (Exception $e) {
+        echo "Caught Exception ('{$e->getMessage()}')\n{$e}\n";
+    }
+
+    exit();
+    ?>
+
+Code
+----
+
+Source Code is available at github:
+
+    https://github.com/jnorell/Net_Telnet
+
+There is currently no packaging for PEAR or anything else.
+
+Reporting Bugs
+--------------
+
+There's an Issue tracker on the github page if you want to report bugs.
+
+PEAR
+-------
+
+I'll look at making this a full PEAR package eventually,
+but it's a standalone project at the moment.
+
+Author
+------
+
+Net_Telnet in current form was written by Jesse Norell <jesse@kci.net>.
+
+License
+-------
+
+    Copyright 2012 Jesse Norell <jesse@kci.net>
+    Copyright 2012 Kentec Communications, Inc.
+
+    Licensed under the Apache License, Version 2.0 (the "License");
+    you may not use this file except in compliance with the License.
+    You may obtain a copy of the License at
+
+        http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing, software
+    distributed under the License is distributed on an "AS IS" BASIS,
+    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    See the License for the specific language governing permissions and
+    limitations under the License.
+
