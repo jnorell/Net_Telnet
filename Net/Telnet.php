@@ -1045,7 +1045,7 @@ class Net_Telnet
         foreach ($cmds as $cmd) {
             if (! $ok) { continue; }
             $this->println($cmd);
-            if ($ret = $this->waitfor($this->prompt) === false) {
+            if (($ret = $this->waitfor($this->prompt)) === false) {
                 $ok = false;
             } else
                 $retval .= $ret;
@@ -1096,33 +1096,30 @@ class Net_Telnet
         /**
          * Read timeout
          */
-        $t = 0;
+        $t = $this->timeout;
 
-        if ($searchfor === null && $numbytes === null && $timeout === null) {
-            stream_set_blocking($s, FALSE );
+        if ($searchfor === null && $numbytes === null && $timeout === null)
+            stream_set_timeout($s, 0);
+        else if ($timeout === null) {
+            stream_set_timeout($s, $this->timeout);
         } else {
-            stream_set_blocking($s, TRUE );
-            if ($timeout === null) {
-                $t = $this->timeout;
-            } else {
-                $t = (intval($timeout) > 0) ? intval($timeout) : 0;
-            }
+            $t = (intval($timeout) > 0) ? intval($timeout) : 0;
+            stream_set_timeout($s, $t);
         }
 
-        stream_set_timeout($s, $t);
 
         while (!$found && ! feof($s)
             && (! (intval($numbytes) > 0 && strlen($buf) >= intval($numbytes))))
         {
 
             if (intval($timeout) > 0) {
-                if (($t = ($ts + intval($timeout) - time())) <= 0)
-                stream_set_timeout($s, $t);
+                if (($t = ($ts + intval($timeout) - time())) >= 0)
+                    stream_set_timeout($s, $t);
             }
 
             if (isset($c)) { $last_c = $c; }
 
-            if (!feof($s) && ($c = fgetc($s)) === false) {
+            if (!feof($s) && (($c = fgetc($s)) === false)) {
                 $info = stream_get_meta_data($s);
 
                 if ($info['timed_out'])
@@ -1229,7 +1226,9 @@ class Net_Telnet
                 $buf .= $c;
 
                 // TODO: add regex support
-                if (substr($buf, 0 - strlen($searchfor)) === $searchfor) {
+                if ($searchfor !== null &&
+                    (substr($buf, 0 - strlen($searchfor)) === $searchfor))
+                {
                     $found = true;
                     continue;
                 }
@@ -1253,9 +1252,8 @@ class Net_Telnet
         if ($searchfor === null && $numbytes === null && $timeout === null)
             $found = true;
         else if ($searchfor === null && intval($numbytes) > 0 
-            && strlen($buf) >= intval($numbytes)) {
+            && strlen($buf) >= intval($numbytes))
             $found = true;
-        }
 
         return ($found) ? strlen($buf) : false;
     }
