@@ -598,6 +598,10 @@ class Net_Telnet
     function net_write ($data=null) {
         $written=0;
         $n=0;
+
+        if ($this->s === null) 
+            return 0;
+
         if ($data !== null && strlen($data) > 0) {
             $total=strlen($data);
             $d = $data;
@@ -609,7 +613,10 @@ class Net_Telnet
         while ($written < $total) {
             $d = substr($d,$n);
             if (($n = fwrite($this->s,$d,4096)) === false)
-                throw new Exception("error writing to socket");
+                if (feof($this->s))
+                    break;
+                else
+                    throw new Exception("error writing to socket");
             $written += $n;
         }
 
@@ -910,8 +917,7 @@ class Net_Telnet
                 $this->net_write();
         else if ($this->GA) {
                 $this->net_write();
-                if (fwrite($this->s, TEL_IAC.TEL_GA) === false)
-                    throw new Exception("error writing to socket");
+                $this->net_write(TEL_IAC.TEL_GA);
                 $this->GA = false;
         } else
                 return false;
@@ -1022,6 +1028,15 @@ class Net_Telnet
         if (! strlen($arg) > 0)
             return ! feof($this->s);
 
+        if ($this->s === null)
+            return false;
+
+        if (feof($this->s)) {
+            $this->read_stream();
+            $this->disconnect();
+            return $this->get_data();
+        }
+
         return ($this->read_stream($arg)) ? $this->get_data() : false;
     }
 
@@ -1124,8 +1139,10 @@ class Net_Telnet
 
                 if ($info['timed_out'])
                     continue;
+                else if ($info['eof'])
+                    break;
                 else
-                    throw new Exception("error reading from network");
+                    throw new Exception("Error reading from network");
             }
 
             if ($c == TEL_IAC) {            /* Interpret As Command */
@@ -1135,10 +1152,10 @@ class Net_Telnet
                     if ($info['timed_out'])
                         continue;
                     else if ($this->mode['telnet_bugs']) {
-                        $this->debug("error reading TELNET command char from network");
+                        $this->debug("Error reading TELNET command char from network");
                         break;
                     } else
-                        throw new Exception("error reading TELNET command char from network");
+                        throw new Exception("Error reading TELNET command char from network");
                 }
 
                 switch ($c)
@@ -1156,11 +1173,11 @@ class Net_Telnet
                             if ($info['timed_out'])
                                 continue;
                             else if ($this->mode['telnet_bugs']) {
-                                $this->debug("error reading telnet option "
+                                $this->debug("Error reading TELNET option "
                                     . " char for {$TELCMDS[$c]} command");
                                 continue;
                             } else {
-                                throw new Exception ("error reading telnet option "
+                                throw new Exception ("Error reading TELNET option "
                                     . " char for {$TELCMDS[$c]} command");
                             }
                         }
@@ -1187,10 +1204,10 @@ class Net_Telnet
                             if ($info['timed_out'])
                                 continue;
                             else if ($this->mode['telnet_bugs']) {
-                                $this->debug("error reading telnet subnegotiation command");
+                                $this->debug("Error reading TELNET SubNegotiation command");
                                 continue;
                             } else
-                                throw new Exception ("error reading telnet subnegotiation command");
+                                throw new Exception ("Error reading TELNET SubNegotiation command");
                         }
                         $this->recv_telcmd($telcmd,$subopt,$data);
                         break;
@@ -1268,6 +1285,8 @@ class Net_Telnet
      * @todo: document $args
      */
     function login($args=null,$arg2=null) {
+        $retval = "";
+
         if (is_string($args)) {
             $this->login['login'] = $args;
             $this->debug("login set to ".$args);
@@ -1322,8 +1341,10 @@ class Net_Telnet
             $this->debug("login: waiting for login prompt:  "
                 . $this->login['login_prompt']);
 
-            if ($this->waitfor($this->login['login_prompt']) === false)
+            if (($ret = $this->waitfor($this->login['login_prompt'])) === false)
                 throw new Exception ("login: failed to find login prompt");
+
+            $retval .= $ret;
 
             if (array_key_exists('login', $this->login))
                 $this->println($this->login['login']);
@@ -1336,8 +1357,10 @@ class Net_Telnet
             $this->debug("login: waiting for password prompt:  "
                 . $this->login['password_prompt']);
 
-            if ($this->waitfor($this->login['password_prompt']) === false)
+            if (($ret = $this->waitfor($this->login['password_prompt'])) === false)
                 throw new Exception ("login: failed to find password prompt");
+
+            $retval .= $ret;
         }
 
         if (array_key_exists('password', $this->login)) {
@@ -1345,14 +1368,17 @@ class Net_Telnet
         }
 
         if (array_key_exists('login_success', $this->login)) {
-            if ($this->waitfor($this->login['login_success']) === false)
+            if (($ret = $this->waitfor($this->login['login_success'])) === false)
                 throw new Exception ("login: failed to login successfully");
+            $retval .= $ret;
         }
 
-        if ($this->waitfor($this->prompt) === false)
+        if (($ret = $this->waitfor($this->prompt)) === false)
             throw new Exception ("login: error parsing telnet session (didn't find prompt)");
 
-        return $this->get_data();
+        $retval .= $ret;
+
+        return $retval;
     }
 
 }
