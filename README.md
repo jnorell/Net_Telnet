@@ -13,6 +13,7 @@ Net_Telnet implements the following:
 * RFC 856  TELNET Binary Transmission
 * RFC 857  TELNET ECHO Option
 * RFC 858  TELNET SUPPRESS GO AHEAD option
+* RFC 860  TELNET TIMING MARK option
 
 Use
 ---
