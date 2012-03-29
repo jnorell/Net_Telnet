@@ -20,7 +20,10 @@ Use
 
 Net_Telnet has been used for short-running scripts, eg. to login to a device
 and check status or reboot; I don't know how it would fair in handling
-long-running connections or in more complex applications.
+long-running connections or in more complex applications.  Also it has only
+been used as a TELNET client, the initial options and other default behavior
+would need to be reviewed to operate correctly as a TELNET server (and need to
+add a listen() funcition).
 
     <?php
     require_once "Net/Telnet.php";
