@@ -545,14 +545,18 @@ class Net_Telnet
                 throw new Exception("connect called with non-null socket and disconnect failed");
 
         if (ip2long($this->host)) {
-            $this->debug("attempting connection to to ".$this->host.":".$this->port);
+            $this->debug("attempting connection to ".$this->host.":".$this->port);
             $this->s = fsockopen($this->host, $this->port, $errno, $errstr, $this->timeout);
+            if ($this->s)
+                $this->debug("connected to ".$this->host.":".$this->port);
         } else {
             if ($addrs = gethostbynamel($this->host)) {
                 foreach ($addrs as $a) {
                     if ($this->s) { continue; }
-                        $this->debug("attempting connection to to ".$a.":".$this->port);
+                        $this->debug("attempting connection to ".$a.":".$this->port);
                     $this->s = fsockopen($a, $this->port, $errno, $errstr, $this->timeout);
+                    if ($this->s)
+                        $this->debug("connected to ".$a.":".$this->port);
                 }
             } else
                 throw new Exception("invalid or unknown hostname: ".$this->host); 
@@ -571,7 +575,9 @@ class Net_Telnet
     }
 
     /**
-     * Closes tcp connection with remote host
+     * Closes tcp connection with remote host.
+     * Does not return data in userbuf,
+     * you might need to call get_data() still.
      */
     function disconnect() {
         if ($this->s !== null) {
@@ -917,8 +923,10 @@ class Net_Telnet
                 $this->net_write();
         else if ($this->GA) {
                 $this->net_write();
-                $this->net_write(TEL_IAC.TEL_GA);
-                $this->GA = false;
+                if ($this->mode['telnet']) {
+                    $this->net_write(TEL_IAC.TEL_GA);
+                    $this->GA = false;
+                }
         } else
                 return false;
 
@@ -1077,7 +1085,7 @@ class Net_Telnet
      * and/or byte/time limit, while watching for telnet commands.
      * Call with no parameters to do read all pending data.
      *
-     * Bugs:  we could read in larger chunks for efficiency
+     * Bug:  we could read in larger chunks for efficiency
      *
      * @param string $searchfor     string (not regex) to search for
      * @param integer $numbytes     read this many bytes
@@ -1109,17 +1117,24 @@ class Net_Telnet
         $ts = time();
 
         /**
+         * We're supposed to read any/all available data 
+         * from the network, then return immediately.
+         */
+        $drain = false;
+
+        /**
          * Read timeout
          */
         $t = $this->timeout;
 
-        if ($searchfor === null && $numbytes === null && $timeout === null)
-            stream_set_timeout($s, 0);
-        else if ($timeout === null) {
+        if ($searchfor === null && $numbytes === null && $timeout === null) {
+            $drain = true;
+            stream_set_timeout($s, 0, 200000);
+        } else if ($timeout === null) {
             stream_set_timeout($s, $this->timeout);
         } else {
             $t = (intval($timeout) > 0) ? intval($timeout) : 0;
-            stream_set_timeout($s, $t);
+            stream_set_timeout($s, $t, 200000);
         }
 
 
@@ -1137,20 +1152,24 @@ class Net_Telnet
             if (!feof($s) && (($c = fgetc($s)) === false)) {
                 $info = stream_get_meta_data($s);
 
-                if ($info['timed_out'])
-                    continue;
-                else if ($info['eof'])
+                if ($info['eof'])
                     break;
+                else if ($info['timed_out'])
+                    if ($drain) break;
+                    else continue;
                 else
                     throw new Exception("Error reading from network");
             }
 
-            if ($c == TEL_IAC) {            /* Interpret As Command */
+            if ($this->mode['telnet'] && $c == TEL_IAC) {            /* Interpret As Command */
                 if (!feof($s) && ($c = fgetc($s)) === false) {
                     $info = stream_get_meta_data($s);
 
-                    if ($info['timed_out'])
-                        continue;
+                    if ($info['eof'])
+                        break;
+                    else if ($info['timed_out'])
+                        if ($drain) break;
+                        else continue;
                     else if ($this->mode['telnet_bugs']) {
                         $this->debug("Error reading TELNET command char from network");
                         break;
@@ -1170,8 +1189,11 @@ class Net_Telnet
                         if (!feof($s) && ($opt = fgetc($s)) === false) {
                             $info = stream_get_meta_data($s);
 
-                            if ($info['timed_out'])
-                                continue;
+                            if ($info['eof'])
+                                break;
+                            else if ($info['timed_out'])
+                                if ($drain) break;
+                                else continue;
                             else if ($this->mode['telnet_bugs']) {
                                 $this->debug("Error reading TELNET option "
                                     . " char for {$TELCMDS[$c]} command");
@@ -1201,8 +1223,11 @@ class Net_Telnet
                         if ($c === false) {
                             $info = stream_get_meta_data($s);
 
-                            if ($info['timed_out'])
-                                continue;
+                            if ($info['eof'])
+                                break;
+                            else if ($info['timed_out'])
+                                if ($drain) break;
+                                else continue;
                             else if ($this->mode['telnet_bugs']) {
                                 $this->debug("Error reading TELNET SubNegotiation command");
                                 continue;
@@ -1230,14 +1255,16 @@ class Net_Telnet
                         break;
                 }
             } else {
-                if ($c == chr(0) && $last_c == chr(13)) {
-                    $this->debug("NUL received after a CR, discarded");
-                    continue;
-                }
+                if ($this->mode['telnet']) {
+                    if ($c == chr(0) && $last_c == chr(13)) {
+                        $this->debug("NUL received after a CR, discarded");
+                        continue;
+                    }
 
-                if (ord($c) > 127 && (! $this->mode['rx_binmode'])) {
-                    $this->debug("discarding non-ASCII char (".ord($c).")");
-                    continue;
+                    if (ord($c) > 127 && (! $this->mode['rx_binmode'])) {
+                        $this->debug("discarding non-ASCII char (".ord($c).")");
+                        continue;
+                    }
                 }
 
                 $buf .= $c;
@@ -1266,10 +1293,8 @@ class Net_Telnet
 
         $this->userbuf .= $buf;
 
-        if ($searchfor === null && $numbytes === null && $timeout === null)
-            $found = true;
-        else if ($searchfor === null && intval($numbytes) > 0 
-            && strlen($buf) >= intval($numbytes))
+        if ($drain || ($searchfor === null && intval($numbytes) > 0 
+                        && strlen($buf) >= intval($numbytes)))
             $found = true;
 
         return ($found) ? strlen($buf) : false;
