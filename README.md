@@ -23,7 +23,7 @@ and check status or reboot; I don't know how it would fair in handling
 long-running connections or in more complex applications.  Also it has only
 been used as a TELNET client, the initial options and other default behavior
 would need to be reviewed to operate correctly as a TELNET server (and need to
-add a listen() funcition).
+add a listen() function).
 
     <?php
     require_once "Net/Telnet.php";
@@ -31,15 +31,21 @@ add a listen() funcition).
     try {
         $t = new Net_Telnet('10.15.20.25');
         $t->connect();
-        $t->login( array(
+
+        echo $t->login( array(
             'login_prompt'  => '',
-            'login          => '',
+            'login'         => '',
             'password'      => 'cisco_password',
             'prompt'        => '> ',
+            )
         );
-        $t->cmd('show version');
-        $t->cmd('traceroute github.com');
+
+        echo $t->cmd('show version');
+        echo $t->cmd('traceroute github.com');
+
         $t->disconnect();
+
+        echo $t->get_data();    // catch any buffered data
     }
     catch (Exception $e) {
         echo "Caught Exception ('{$e->getMessage()}')\n{$e}\n";

@@ -244,7 +244,7 @@ class Net_Telnet
     protected $host;
 
     /**
-     * TCP Port to connec to
+     * TCP Port to connect to
      */
     protected $port = 23;
 
@@ -289,17 +289,19 @@ class Net_Telnet
      * Current operating modes
      */
     protected $mode = array(
-        'telnet'        => true,    /* send and interpret TELNET commands */
-        'telnet_bugs'   => true,    /* try to work around bad TELNET implementations */
-        'linefeeds'     => true,    /* do \r\n <-> \n conversions */
-        'tx_binmode'    => false,   /* we transmit in telnet binary mode */
-        'rx_binmode'    => false,   /* they are transmitting in binary mode */
-        'echo'          => true,    /* we echo to local Net_Telnet user */
-        'echomode'      => false,   /* we echo back to network */
-        'tx_sga'        => false,   /* we are suppresssing go ahead */
-        'rx_sga'        => false,   /* they are suppressing go ahead */
-        'debug'         => false,   /* print messages in-stream (for debugging NET_Telnet) */
-        'pager'         => false,   /* watch for a prompt at a "page" (screen) full */
+        'telnet'        => true,        /* send and interpret TELNET commands */
+        'telnet_bugs'   => true,        /* try to work around bad TELNET implementations */
+        'linefeeds'     => true,        /* do \r\n <-> \n conversions */
+        'tx_binmode'    => false,       /* we transmit in telnet binary mode */
+        'rx_binmode'    => false,       /* they are transmitting in binary mode */
+        'echomode'      => "default",   /* preferreed echo mode:  "local", "remote" or "none" */
+        'echo_local'    => true,        /* we echo to local Net_Telnet user */
+        'echo_remote'   => false,       /* remote end is performing echo */
+        'echo_net'      => false,       /* we echo back to network */
+        'tx_sga'        => false,       /* we are suppresssing go ahead */
+        'rx_sga'        => false,       /* they are suppressing go ahead */
+        'debug'         => false,       /* print messages in-stream (for debugging NET_Telnet) */
+        'pager'         => false,       /* watch for a prompt at a "page" (screen) full */
     );
 
     /**
@@ -511,6 +513,63 @@ class Net_Telnet
     }
 
     /**
+     * Attempts to set preferred echo mode.
+     *
+     * Note: Remote echo isn't guaranteed to be supported by the remote host.
+     *
+     * @param string $mode  echo mode to use, one of
+     *
+     * 'local' :    Echo commands/characters sent back to user of Net_Telnet
+     * 
+     * 'remote' :   Attempt to enable remote echo from TELNET peer,
+     *              but falls back to local echo.
+     * 
+     * 'none' :     Disable local and remote echo
+     *
+     * @returns string|boolean  current preferred echo mode or false on error.
+     */
+    function echomode ($mode = null) {
+        switch ($mode)
+        {
+            case "local":
+                if ($this->mode['echo_remote']) {
+                    $this->debug("Disabling Remote Echo");
+                    $this->send_telcmd(TEL_DONT, TELOPT_ECHO);
+                    $this->mode['echo_remote'] = false;
+                }
+                break;
+            case "remote":
+                if (! $this->mode['echo_remote']) {
+                    $this->debug("Requesting Remote Echo");
+                    $this->send_telcmd(TEL_DO, TELOPT_ECHO);
+
+                    if (! $this->mode['echo_local']) {
+                        $this->debug("Enabling Local Echo");
+                        $this->mode['echo_local'] = true;
+                    }
+                }
+                break;
+            case "none":
+                if ($this->mode['echo_local']) {
+                    $this->debug("Disabling Local Echo");
+                    $this->mode['echo_local'] = false;
+                }
+                if ($this->mode['echo_remote']) {
+                    $this->debug("Disabling Remote Echo");
+                    $this->send_telcmd(TEL_DONT, TELOPT_ECHO);
+                    $this->mode['echo_remote'] = false;
+                }
+                break;
+            default:
+                return false;
+                break;
+        }
+
+        $this->mode['echomode'] = $mode;
+        return $this->mode['echomode'];
+    }
+
+    /**
      * Establishes tcp connection with remote host.
      *
      * @param string|array $opts    can specify host and/or port
@@ -635,8 +694,18 @@ class Net_Telnet
      * Sends commands for initial TELNET options
      */
     function initial_options() {
-        $this->send_telcmd(TEL_DO,   TELOPT_ECHO);
-        $this->send_telcmd(TEL_DO,   TELOPT_SGA);
+        switch ($this->mode['echomode'])
+        {
+            case "local":
+            case "none":
+                break;
+            case "remote":
+            default:
+                $this->send_telcmd(TEL_DO, TELOPT_ECHO);
+                $this->send_telcmd(TEL_DO, TELOPT_SGA);
+                break;
+        }
+
         if (! $this->mode['telnet_bugs']) {
             /*
              * Some implementations only keep a single SGA state,
@@ -738,25 +807,43 @@ class Net_Telnet
                             $this->send_telcmd(TEL_DONT, $opt);
                         break;
                     case TELOPT_ECHO:
-                        if (! $this->mode['echo']) { continue; }
+                        if ($this->mode['echo_remote']) { continue; }
 
-                        $this->debug("Enabling Remote Echo");
-                        $this->mode['echo'] = false;
+                        switch ($this->mode['echomode'])
+                        {
+                            case "local":
+                            case "none":
+                                $this->debug("Refusing Remote Echo");
+                                $this->send_telcmd(TEL_DONT, $opt);
+                                break;
+                            case "remote":
+                            default:
+                                $this->debug("Enabling Remote Echo");
+                                $this->mode['echo_local'] = false;
+                                $this->mode['echo_remote'] = true;
 
-                        if ($this->mode['echomode']) {
-                            $this->debug("Disabling Local Network Echo");
-                            $this->mode['echomode'] = false;
-                            $this->send_telcmd(TEL_WONT, $opt);
+                                if ($this->mode['echo_net']) {
+                                    $this->debug("Disabling Local Network Echo");
+                                    $this->mode['echo_net'] = false;
+                                    $this->send_telcmd(TEL_WONT, $opt);
+                                }
+
+                                if (! array_key_exists(TEL_DO, $this->telcmds['sent'][$opt]))
+                                    $this->send_telcmd(TEL_DO, $opt);
+                                break;
                         }
 
-                        if (! array_key_exists(TEL_DO, $this->telcmds['sent'][$opt]))
-                            $this->send_telcmd(TEL_DO, $opt);
                         break;
                     case TELOPT_SGA:
                         if ($this->mode['rx_sga']) { continue; }
 
                         $this->debug("Enabling Suppress Go Ahead (SGA) on Receive");
                         $this->mode['rx_sga'] = true;
+
+                        if ($this->mode['telnet_bugs'] && ! $this->mode['tx_sga']) {
+                            $this->debug("Enabling Suppress Go Ahead (SGA) on Transmit");
+                            $this->mode['tx_sga'] = true;
+                        }
 
                         if (! array_key_exists(TEL_DO, $this->telcmds['sent'][$opt]))
                             $this->send_telcmd(TEL_DO, $opt);
@@ -785,15 +872,38 @@ class Net_Telnet
                         }
                         break;
                     case TELOPT_ECHO:
-                        if ($this->mode['echo']) { continue; }
+                        if (! $this->mode['echo_remote']) { continue; }
 
-                        $this->debug("Enabling Local Echo");
-                        $this->mode['echo'] = true;
+                        switch ($this->mode['echomode'])
+                        {
+                            case "remote":
+                                $this->debug("Remote won't ECHO, performing Local Echo");
+                                $this->mode['echo_local'] = true;
+                                break;
+                        }
                         break;
                     case TELOPT_SGA:
                         if (! $this->mode['rx_sga'])
                             $this->debug("Disabling Suppress Go Ahead (SGA) on Receive");
+
                         $this->mode['rx_sga'] = false;
+
+                        if ($this->mode['echo_remote']) {
+                            $this->debug("Disabling Remote Echo");
+                            $this->send_telcmd(TEL_DONT, $opt);
+                            $this->mode['echo_remote'] = false;
+
+                            if ($this->mode['echomode'] == "remote") {
+                                $this->debug("Enabling Local Echo");
+                                $this->mode['echo_local'] = true;
+                            }
+                        }
+
+                        if ($this->mode['telnet_bugs'] && $this->mode['tx_sga']) {
+                            $this->debug("Disabling Suppress Go Ahead (SGA) on Transmit"
+                                . " (workaround for broken TELNETs)");
+                            $this->mode['tx_sga'] = false;
+                        }
                         break;
                     case TELOPT_STATUS:
                     case TELOPT_TM:
@@ -821,17 +931,29 @@ class Net_Telnet
                             $this->send_telcmd(TEL_WONT, $opt);
                         break;
                     case TELOPT_ECHO:
-                        if ($this->mode['echomode']) { continue; }
+                        if ($this->mode['echo_net']) { continue; }
 
-                        if (! $this->mode['echo'])
-                            $this->debug("Enabling Local Echo");
-                        $this->mode['echo'] = true;
+                        if ($this->mode['echo_remote']) {
+                            $this->debug("Disabling Remote Echo to prevent Echo loop");
+                            $this->mode['echo_remote'] = false;
+                            $this->send_telcmd(TEL_DONT, $opt);
+                        }
+
+                        switch ($this->mode['echomode'])
+                        {
+                            case "local":
+                            case "remote":
+                                $this->debug("Enabling Local Echo");
+                                $this->mode['echo_local'] = true;
+                                break;
+                        }
 
                         $this->debug("Enabling Local Network Echo");
-                        $this->mode['echomode'] = true;
+                        $this->mode['echo_net'] = true;
 
                         if (! array_key_exists(TEL_WILL, $this->telcmds['sent'][$opt]))
                             $this->send_telcmd(TEL_WILL, $opt);
+                        
                     case TELOPT_SGA:
                         if ($this->mode['tx_sga']) { continue; }
 
@@ -875,14 +997,18 @@ class Net_Telnet
                         }
                         break;
                     case TELOPT_ECHO:
-                        if ($this->mode['echomode']) {
+                        if ($this->mode['echo_net']) {
                             $this->debug("Disabling Local Network Echo");
-                            $this->mode['echomode'] = false;
+                            $this->mode['echo_net'] = false;
+
+                            if (! array_key_exists(TEL_WONT, $this->telcmds['sent'][$opt]))
+                                $this->send_telcmd(TEL_WONT, $opt);
                         }
                         break;
                     case TELOPT_SGA:
                         if ($this->mode['tx_sga'])
                             $this->debug("Disabling Suppress Go Ahead (SGA) on Transmit");
+
                         $this->mode['tx_sga'] = false;
 
                         if ($this->mode['telnet_bugs'] && $this->mode['rx_sga']) {
@@ -982,7 +1108,7 @@ class Net_Telnet
         if ($this->mode['telnet'] && $esc && ! $this->mode['tx_binmode'])
             $data = preg_replace( '/[\xf0-\xfe]/', '', $data);
 
-        if ($this->mode['echo'])
+        if ($this->mode['echo_local'])
             $this->userbuf .= $data;
 
         if ($this->mode['telnet'] && $esc && $this->mode['tx_binmode'])
@@ -991,7 +1117,7 @@ class Net_Telnet
         $this->writebuf .= $data;
 
         // If using remote echo, flush the network buffer
-        if (! $this->mode['echo'])
+        if ($this->mode['echo_remote'])
             $this->net_write();
     }
 
@@ -1014,7 +1140,7 @@ class Net_Telnet
                 $str.="\n";
 
             if ($this->mode['linefeeds'])
-                $str = preg_replace('/([^\r])\n/', "$1\r\n", $str);
+                $str = preg_replace('/([^\r])?\n/', "$1\r\n", $str);
 
             $this->put_data($str);
         }
@@ -1040,7 +1166,6 @@ class Net_Telnet
             return false;
 
         if (feof($this->s)) {
-            $this->read_stream();
             $this->disconnect();
             return $this->get_data();
         }
@@ -1055,16 +1180,17 @@ class Net_Telnet
      * @param string|array $cmd command or array of command to run
      * @returns string|boolean  data read or false on failure
      */
-    function cmd ($cmd) {
-        if (is_string($cmd) || is_null($cmd))
-            $cmds = array( $cmd );
-        else if ( is_array($cmd) )
-            $cmds = $cmd;
+    function cmd ($arg) {
+        if (is_string($arg) || is_null($arg))
+            $cmds = array( $arg );
+        else if ( is_array($arg) )
+            $cmds = $arg;
         else
             throw new Exception("cmd called with invalid input");
 
         $retval = "";
         $ok = true;
+
         foreach ($cmds as $cmd) {
             if (! $ok) { continue; }
             $this->println($cmd);
@@ -1137,14 +1263,15 @@ class Net_Telnet
             stream_set_timeout($s, $t, 200000);
         }
 
-
         while (!$found && ! feof($s)
             && (! (intval($numbytes) > 0 && strlen($buf) >= intval($numbytes))))
         {
 
             if (intval($timeout) > 0) {
-                if (($t = ($ts + intval($timeout) - time())) >= 0)
-                    stream_set_timeout($s, $t);
+                if (($t = ($ts + intval($timeout) - time())) > 0)
+                    stream_set_timeout($s, $t, 200000);
+                else
+                    break;
             }
 
             if (isset($c)) { $last_c = $c; }
@@ -1161,7 +1288,7 @@ class Net_Telnet
                     throw new Exception("Error reading from network");
             }
 
-            if ($this->mode['telnet'] && $c == TEL_IAC) {            /* Interpret As Command */
+            if ($this->mode['telnet'] && $c == TEL_IAC) {       /* Interpret As Command */
                 if (!feof($s) && ($c = fgetc($s)) === false) {
                     $info = stream_get_meta_data($s);
 
@@ -1289,7 +1416,7 @@ class Net_Telnet
         }
 
         if ($this->mode['linefeeds'])
-            $buf = preg_replace('/\r\n/', "\n", $buf);
+            $buf = preg_replace("/\r\n/", "\n", $buf);
 
         $this->userbuf .= $buf;
 
