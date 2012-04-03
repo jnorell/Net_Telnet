@@ -34,18 +34,19 @@ add a listen() function).
 
         echo $t->login( array(
             'login_prompt'  => '',
+            'login_success' => '',
             'login'         => '',
             'password'      => 'cisco_password',
-            'prompt'        => '> ',
+            'prompt'        => 'Cisco>',
             )
         );
 
         echo $t->cmd('show version');
-        echo $t->cmd('traceroute github.com');
 
         $t->disconnect();
 
-        echo $t->get_data();    // catch any buffered data
+        echo $t->get_data();
+        echo "\n";
     }
     catch (Exception $e) {
         echo "Caught Exception ('{$e->getMessage()}')\n{$e}\n";
