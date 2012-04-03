@@ -441,14 +441,12 @@ class Net_Telnet
 
             if (array_key_exists('prompt', $opts)) {
                 $this->prompt = $opts['prompt'];
-
                 $this->debug("prompt "
                     . (strlen($this->prompt) > 0 ? "set to {$this->prompt}" : "unset"));
             }
 
             if (array_key_exists('debugfmt', $opts)) {
                 $this->debugfmt = $opts['debugfmt'];
-
                 $this->debug("prompt "
                     . (strlen($this->debugfmt) > 0 ? "set to {$this->debugfmt}" : "unset"));
             }
@@ -509,6 +507,10 @@ class Net_Telnet
             $this->page_prompt = $p;
         if ($c !== null)
             $this->page_continue = $c;
+
+        if (strlen($this->page_prompt) > 0 && strlen($this->page_continue) > 0)
+            $this->mode['pager'] = true;
+
         return $this->page_prompt;
     }
 
@@ -1160,7 +1162,7 @@ class Net_Telnet
             $arg = $this->prompt;
 
         if (! strlen($arg) > 0)
-            return ! feof($this->s);
+            return (! feof($this->s)) ? $this->get_data() : false;
 
         if ($this->s === null)
             return false;
@@ -1170,7 +1172,12 @@ class Net_Telnet
             return $this->get_data();
         }
 
-        return ($this->read_stream($arg)) ? $this->get_data() : false;
+        if ($this->read_stream($arg) !== false)
+            return $this->get_data();
+        else {
+            $this->debug("waitfor: read_stream({$arg}) failed");
+            return false;
+        }
     }
 
     /**
@@ -1192,9 +1199,14 @@ class Net_Telnet
         $ok = true;
 
         foreach ($cmds as $cmd) {
-            if (! $ok) { continue; }
+            if (! $ok) {
+                $this->debug("cmd: aborting command {$cmd} due to previous failure");
+                continue;
+            }
             $this->println($cmd);
             if (($ret = $this->waitfor($this->prompt)) === false) {
+                $this->debug("cmd: waitfor({$this->prompt}) failed,"
+                   . " aborting further commands");
                 $ok = false;
             } else
                 $retval .= $ret;
@@ -1409,7 +1421,8 @@ class Net_Telnet
                 {
                     $this->put_data($this->page_continue);
                     $this->go_ahead();
-                    $buf = preg_replace("/{$this->page_prompt}/", "", $buf);
+// Could make this configurable, but not needed on cisco router:
+//                    $buf = preg_replace("/{$this->page_prompt}/", "", $buf);
                     continue;
                 }
             }
@@ -1477,15 +1490,13 @@ class Net_Telnet
                 $this->login['password'] = $args['password'];
                 $this->debug("password set to ".$args['password']);
             }
-        }
 
-        if (! (array_key_exists('login_success', $this->login)
-            && strlen($this->login['login_success']) > 0))
-        {
-            $this->login['login_success'] = $this->prompt;
-            $this->debug("login_success set to ".$this->prompt);
+            if (array_key_exists('prompt', $args)) {
+                $this->prompt = $args['prompt'];
+                $this->debug("prompt "
+                    . (strlen($this->prompt) > 0 ? "set to {$this->prompt}" : "unset"));
+            }
         }
-
 
         if (array_key_exists('login_prompt', $this->login)
             && strlen($this->login['login_prompt']) > 0)
@@ -1516,19 +1527,30 @@ class Net_Telnet
         }
 
         if (array_key_exists('password', $this->login)) {
+            $this->debug("login: sending password");
             $this->println($this->login['password']);
         }
 
-        if (array_key_exists('login_success', $this->login)) {
+        if (array_key_exists('login_success', $this->login)
+            && strlen($this->login['login_success']) > 0
+            && $this->login['login_success'] != $this->prompt) {
+            $this->debug("login: waiting for login success prompt:  "
+                . $this->login['login_success']);
+
             if (($ret = $this->waitfor($this->login['login_success'])) === false)
                 throw new Exception ("login: failed to login successfully");
+
             $retval .= $ret;
         }
+
+        $this->debug("login: waiting for command prompt: {$this->prompt}");
 
         if (($ret = $this->waitfor($this->prompt)) === false)
             throw new Exception ("login: error parsing telnet session (didn't find prompt)");
 
         $retval .= $ret;
+
+        $this->debug("login: we appear to be logged in.");
 
         return $retval;
     }
