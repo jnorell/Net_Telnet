@@ -36,6 +36,7 @@ require_once "Net/Telnet.php";
 
 $router='router1';
 $password='ubersecret';
+$enable_secret='evenmoreso';
 
 try {
     $t = new Net_Telnet($router);
@@ -55,6 +56,18 @@ try {
 
     echo $t->cmd('show version');
     echo $t->cmd('traceroute github.com');
+
+    # send enable command
+    $t->println("enable");
+
+    # reuse login() to send enable secret
+    echo $t->login( array(
+        'password'      => $enable_secret,
+        'prompt'        => "{$router}#",
+        )
+    );
+
+    echo $t->cmd('show running-config');
 
     $t->disconnect();
 

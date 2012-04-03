@@ -1546,7 +1546,8 @@ class Net_Telnet
         $this->debug("login: waiting for command prompt: {$this->prompt}");
 
         if (($ret = $this->waitfor($this->prompt)) === false)
-            throw new Exception ("login: error parsing telnet session (didn't find prompt)");
+            throw new Exception ("login: error in telnet session,"
+                . " didn't find prompt (failed login?)");
 
         $retval .= $ret;
 
