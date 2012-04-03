@@ -1498,6 +1498,9 @@ class Net_Telnet
             }
         }
 
+        if ($this->s === null)
+            $this->connect();
+
         if (array_key_exists('login_prompt', $this->login)
             && strlen($this->login['login_prompt']) > 0)
         {
