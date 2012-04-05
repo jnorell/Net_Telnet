@@ -280,7 +280,7 @@ class Net_Telnet
         'login_prompt'      =>  'Login: ',
         'password_prompt'   =>  'Password: ',
         'login_success'     =>  'Login successful',
-        'login_fail'        =>  'Login failed',
+        'login_fail'        =>  null,
         'login'             =>  null,
         'password'          =>  '',
     );
@@ -294,7 +294,7 @@ class Net_Telnet
         'linefeeds'     => true,        /* do \r\n <-> \n conversions */
         'tx_binmode'    => false,       /* we transmit in telnet binary mode */
         'rx_binmode'    => false,       /* they are transmitting in binary mode */
-        'echomode'      => "default",   /* preferreed echo mode:  "local", "remote" or "none" */
+        'echomode'      => "default",   /* preferred echo mode:  "local", "remote" or "none" */
         'echo_local'    => true,        /* we echo to local Net_Telnet user */
         'echo_remote'   => false,       /* remote end is performing echo */
         'echo_net'      => false,       /* we echo back to network */
@@ -324,6 +324,11 @@ class Net_Telnet
      * but still to be read by the user.
      */
     private $userbuf = null;
+
+    /**
+     * Last pattern matched when reading from the network with read_stream()
+     */
+    private $lastmatch = null;
 
     /**
      * TELNET Go Ahead indicator
@@ -367,7 +372,7 @@ class Net_Telnet
      * class constructor, used to initialize quite a few variables
      *
      * @param array $opts   array of optional arguments.
-     * The keys are...
+     * The keys are:
      *
      * 'host' : Host to connect to.
      *
@@ -378,7 +383,10 @@ class Net_Telnet
     function __construct($opts=null) {
         $auto_connect=false;
 
-        $this->timeout = ini_get('default_socket_timeout');
+        if ($val = intval(ini_get('default_socket_timeout')) > 0) {
+            $this->timeout = $val;
+            $this->debug("timeout set to ".$this->timeout);
+        }
 
         if (is_string($opts)) {
             $this->host = $opts;
@@ -656,6 +664,20 @@ class Net_Telnet
     }
 
     /**
+     * Tests if TELNET is "online" - ie. network socket is
+     * set and not at EOF.
+     *
+     * @returns boolean
+     */
+    function online () {
+        if ($this->s) {
+            $info = stream_get_meta_data($this->s);
+            return ($info['eof']) ? false : true;
+        }
+        return false;
+    }
+
+    /**
      * Writes raw data to the network.  If no data is provided,
      * loops through $writebuf until empty.
      *
@@ -687,7 +709,8 @@ class Net_Telnet
             $written += $n;
         }
 
-        fflush($this->s);
+        if ($this->s)
+            fflush($this->s);
 
         return $written;
     }
@@ -696,6 +719,15 @@ class Net_Telnet
      * Sends commands for initial TELNET options
      */
     function initial_options() {
+        if (! $this->mode['telnet_bugs']) {
+            /*
+             * Some implementations only keep a single SGA state,
+             * though rfc858 says it must be suppressed in
+             * both directions independently.
+             */
+            $this->send_telcmd(TEL_WILL, TELOPT_SGA);
+        }
+
         switch ($this->mode['echomode'])
         {
             case "local":
@@ -710,19 +742,17 @@ class Net_Telnet
 
         if (! $this->mode['telnet_bugs']) {
             /*
-             * Some implementations only keep a single SGA state,
-             * though rfc858 says it must be suppressed in
-             * both directions independently.
-             */
-            $this->send_telcmd(TEL_WILL, TELOPT_SGA);
-
-            /*
              * Working around a buggy telnet that strips the BINARY
              * (ie. ASCII 0) out of the datastream by not requesting it.
              */
             $this->send_telcmd(TEL_DO,   TELOPT_BINARY);
             $this->send_telcmd(TEL_WILL, TELOPT_BINARY);
         }
+
+        $this->net_write();
+
+        if ($this->s)
+            fflush($this->s);
     }
 
     /**
@@ -748,13 +778,11 @@ class Net_Telnet
                 $this->debug("> ". $TELCMDS[$cmd] ." ". $TELOPTS[$opt]);
 
                 $this->telcmds['sent'][$opt][$cmd] = true;
-                if (fwrite($this->s, TEL_IAC.$cmd.$opt) === false)
-                    throw new Exception("error writing to socket");
+                $this->put_data(TEL_IAC.$cmd.$opt, false);
                 break;
             case TEL_NOP:
                 $this->debug("> ". $TELCMDS[$cmd]);
-                if (fwrite($this->s, TEL_IAC.$cmd) === false)
-                    throw new Exception("error writing to socket");
+                $this->put_data(TEL_IAC.$cmd.$opt, false);
                 break;
             case TEL_SB:
                 if (! TELOPT_OK($opt))
@@ -762,11 +790,11 @@ class Net_Telnet
                 $this->debug("> ". $TELCMDS[$cmd] ." ". $TELOPTS[$opt]
                     ." ". $data);   // how to print/format this nicely?
 
+                // Escape IAC char
                 $data = preg_replace('/\xff/', "\xff\xff", $data);
 
                 $this->telcmds['sent_opts'][$opt][$cmd]=$data;
-                if (fwrite($this->s, TEL_IAC.TEL_SB.$opt.$data.TEL_IAC.TEL_SE) === false)
-                    throw new Exception("error writing to socket");
+                $this->put_data(TEL_IAC.TEL_SB.$opt.$data.TEL_IAC.TEL_SE, false);
                 break;
             case TEL_SE:
                 throw new Exception("don't send SE, send SB and I'll add the SE");
@@ -846,6 +874,9 @@ class Net_Telnet
                             $this->debug("Enabling Suppress Go Ahead (SGA) on Transmit");
                             $this->mode['tx_sga'] = true;
                         }
+
+                        if (! array_key_exists(TEL_WILL, $this->telcmds['sent'][$opt]))
+                            $this->send_telcmd(TEL_WILL, $opt);
 
                         if (! array_key_exists(TEL_DO, $this->telcmds['sent'][$opt]))
                             $this->send_telcmd(TEL_DO, $opt);
@@ -1058,7 +1089,9 @@ class Net_Telnet
         } else
                 return false;
 
-        fflush($this->s);
+        if ($this->s)
+            fflush($this->s);
+
         return true;
     }
 
@@ -1219,6 +1252,73 @@ class Net_Telnet
     }
 
     /**
+     * Waits for some text pattern on network input,
+     * then sends a response.
+     *
+     * This function borrows from common expect(1) usage,
+     * and is similar to cmd() but alters the script logic.
+     *
+     * @param string|array  $arg    pattern to wait for, or array of pattern/commands
+     * @param string        $arg2   command to send if $arg is a string
+     * @returns boolean             false if error detected or pattern not found
+     */
+    function expect ($arg,$arg2=null) {
+        if ((is_string($arg) || is_null($arg)) && ($arg2 !== null))
+                $args = array( $arg => $arg2 );
+        else if ( is_array($arg) )
+            $args = $arg;
+        else
+            throw new Exception("expect called with invalid input");
+
+        if (count($args) == 1 && (strlen(key($args)) == 0)) {
+            if ($this->read_stream() === false)
+                return false;
+            $this->send(current($args));
+            return ($this->read_stream()) ? true : false;
+        }
+
+        $pats = array();
+        foreach ($args as $pat => $cmd) {
+            if (strlen($pat) > 0)
+                $pats[] = $pat;
+        }
+
+        if (count($pats) == 0)
+            throw new Exception("expect called with invalid input");
+
+        if ($this->read_stream($pats) === false)
+            return false;
+
+        if (array_key_exists($this->lastmatch, $args)) {
+            $this->send($args[$this->lastmatch]);
+            return true;
+        } else
+            throw new Exception("expect broke, don't have lastmatch ({$this->lastmatch})");
+    }
+
+    /**
+     * Adds a string to writebuf, escaping special chars,
+     * then flushes network buffer.
+     *
+     * This is fairly synonymous with put_data(), primarily
+     * for those using expect() who expect a send().
+     *
+     * @param string $data  String to be written
+     * @param boolean $esc  escape special chars in data or not
+     */
+    function send ($data, $esc=true) {
+        $this->put_data($data, $esc);
+
+        // go_ahead() can hang writes waiting for Go Ahead
+        // with broken TELNET peers (seems nearly ubiquitous),
+        // so we'll write first
+        if ($this->mode['telnet_bugs'])
+            $this->net_write();
+
+        $this->go_ahead();
+    }
+
+    /**
      * Reads network socket watching for a search string
      * and/or byte/time limit, while watching for telnet commands.
      * Call with no parameters to do read all pending data.
@@ -1265,6 +1365,16 @@ class Net_Telnet
          */
         $t = $this->timeout;
 
+        if (! $this->online()) {
+            if ($this->s) {
+                $this->net_write();
+                if (fclose($this->s) === false)
+                    throw new Exception("error closing socket");
+                $this->s = null;
+            }
+            return false;
+        }
+
         if ($searchfor === null && $numbytes === null && $timeout === null) {
             $drain = true;
             stream_set_timeout($s, 0, 200000);
@@ -1275,10 +1385,12 @@ class Net_Telnet
             stream_set_timeout($s, $t, 200000);
         }
 
-        while (!$found && ! feof($s)
+        if (! is_array($searchfor))
+            $searchfor = array( $searchfor );
+
+        while (!$found && ! feof($this->s)
             && (! (intval($numbytes) > 0 && strlen($buf) >= intval($numbytes))))
         {
-
             if (intval($timeout) > 0) {
                 if (($t = ($ts + intval($timeout) - time())) > 0)
                     stream_set_timeout($s, $t, 200000);
@@ -1288,7 +1400,7 @@ class Net_Telnet
 
             if (isset($c)) { $last_c = $c; }
 
-            if (!feof($s) && (($c = fgetc($s)) === false)) {
+            if (feof($s) || (($c = fgetc($s)) === false)) {
                 $info = stream_get_meta_data($s);
 
                 if ($info['eof'])
@@ -1395,10 +1507,9 @@ class Net_Telnet
                 }
             } else {
                 if ($this->mode['telnet']) {
-                    if ($c == chr(0) && $last_c == chr(13)) {
-                        $this->debug("NUL received after a CR, discarded");
+                    // discard NUL received after a CR
+                    if ($c == chr(0) && $last_c == chr(13))
                         continue;
-                    }
 
                     if (ord($c) > 127 && (! $this->mode['rx_binmode'])) {
                         $this->debug("discarding non-ASCII char (".ord($c).")");
@@ -1408,12 +1519,17 @@ class Net_Telnet
 
                 $buf .= $c;
 
-                // TODO: add regex support
-                if ($searchfor !== null &&
-                    (substr($buf, 0 - strlen($searchfor)) === $searchfor))
-                {
-                    $found = true;
-                    continue;
+                if (! $drain) {
+                    foreach ($searchfor as $pat) {
+                        // TODO: add regex support
+                        if ($pat !== null && strlen($pat) > 0
+                            && (substr($buf, 0 - strlen($pat)) === $pat))
+                        {
+                            $this->lastmatch = $pat;
+                            $found = true;
+                            continue;
+                        }
+                    }
                 }
 
                 if ($this->mode['pager'] && (strlen($this->page_prompt) > 0)
@@ -1421,8 +1537,6 @@ class Net_Telnet
                 {
                     $this->put_data($this->page_continue);
                     $this->go_ahead();
-// Could make this configurable, but not needed on cisco router:
-//                    $buf = preg_replace("/{$this->page_prompt}/", "", $buf);
                     continue;
                 }
             }
@@ -1433,9 +1547,17 @@ class Net_Telnet
 
         $this->userbuf .= $buf;
 
-        if ($drain || ($searchfor === null && intval($numbytes) > 0 
+        if ($drain || (count($searchfor) == 0 && intval($numbytes) > 0 
                         && strlen($buf) >= intval($numbytes)))
             $found = true;
+
+        $info = stream_get_meta_data($s);
+        if ($info['eof']) {
+            $this->net_write();
+            if (fclose($this->s) === false)
+                throw new Exception("error closing socket");
+            $this->s = null;
+        }
 
         return ($found) ? strlen($buf) : false;
     }
@@ -1504,6 +1626,13 @@ class Net_Telnet
         if (array_key_exists('login_prompt', $this->login)
             && strlen($this->login['login_prompt']) > 0)
         {
+            if (! (array_key_exists('login_fail', $this->login)
+                && strlen($this->login['login_fail']) > 0))
+            {
+                $this->login['login_fail'] = $this->login['login_prompt'];
+                $this->debug("login_fail defaulting to ".$this->login['login_fail']);
+            }
+
             $this->debug("login: waiting for login prompt:  "
                 . $this->login['login_prompt']);
 
@@ -1520,6 +1649,13 @@ class Net_Telnet
         if (array_key_exists('password_prompt', $this->login)
             && strlen($this->login['password_prompt']) > 0)
         {
+            if (! (array_key_exists('login_fail', $this->login)
+                && strlen($this->login['login_fail']) > 0))
+            {
+                $this->login['login_fail'] = $this->login['password_prompt'];
+                $this->debug("login_fail defaulting to ".$this->login['login_fail']);
+            }
+
             $this->debug("login: waiting for password prompt:  "
                 . $this->login['password_prompt']);
 
