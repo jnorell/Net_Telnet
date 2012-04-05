@@ -54,18 +54,17 @@ try {
     // our terminal displays chars, so disable echo
     $t->echomode('none');
 
-    while (($s = fgets(STDIN)) !== false) {
-        if (($ret = $t->cmd($s)) !== false)
-            echo $ret;
-        else
+    while ($t->online() && ($s = fgets(STDIN)) !== false) {
+        $t->println($s);
+        if (($ret = $t->read_stream()) === false)
             break;
+        echo $t->get_data();
     }
 
     $t->disconnect();
 
     // catch any buffered data
     echo $t->get_data();
-    echo "\n";
 }
 catch (Exception $e) {
     echo "Caught Exception ('{$e->getMessage()}')\n{$e}\n";
