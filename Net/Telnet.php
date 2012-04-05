@@ -775,14 +775,15 @@ class Net_Telnet
             case TEL_DONT:
                 if (! TELOPT_OK($opt))
                     throw new Exception("invalid TELNET option: ".ord($opt));
+
                 $this->debug("> ". $TELCMDS[$cmd] ." ". $TELOPTS[$opt]);
 
                 $this->telcmds['sent'][$opt][$cmd] = true;
-                $this->put_data(TEL_IAC.$cmd.$opt, false);
+                $this->send(TEL_IAC.$cmd.$opt, false, false);
                 break;
             case TEL_NOP:
                 $this->debug("> ". $TELCMDS[$cmd]);
-                $this->put_data(TEL_IAC.$cmd.$opt, false);
+                $this->send(TEL_IAC.$cmd.$opt, false, false);
                 break;
             case TEL_SB:
                 if (! TELOPT_OK($opt))
@@ -794,7 +795,7 @@ class Net_Telnet
                 $data = preg_replace('/\xff/', "\xff\xff", $data);
 
                 $this->telcmds['sent_opts'][$opt][$cmd]=$data;
-                $this->put_data(TEL_IAC.TEL_SB.$opt.$data.TEL_IAC.TEL_SE, false);
+                $this->send(TEL_IAC.TEL_SB.$opt.$data.TEL_IAC.TEL_SE, false, false);
                 break;
             case TEL_SE:
                 throw new Exception("don't send SE, send SB and I'll add the SE");
@@ -1138,12 +1139,13 @@ class Net_Telnet
      *
      * @param string $data  String to be written
      * @param boolean $esc  escape special chars in data or not
+     * @param boolean $echo echo chars when in echo_local mode
      */
-    function put_data ($data, $esc=true) {
+    function put_data ($data, $esc=true, $echo=true) {
         if ($this->mode['telnet'] && $esc && ! $this->mode['tx_binmode'])
             $data = preg_replace( '/[\xf0-\xfe]/', '', $data);
 
-        if ($this->mode['echo_local'])
+        if ($echo && $this->mode['echo_local'])
             $this->userbuf .= $data;
 
         if ($this->mode['telnet'] && $esc && $this->mode['tx_binmode'])
@@ -1305,9 +1307,10 @@ class Net_Telnet
      *
      * @param string $data  String to be written
      * @param boolean $esc  escape special chars in data or not
+     * @param boolean $echo echo chars when in echo_local mode
      */
-    function send ($data, $esc=true) {
-        $this->put_data($data, $esc);
+    function send ($data, $esc=true, $echo=true) {
+        $this->put_data($data, $esc, $echo);
 
         // go_ahead() can hang writes waiting for Go Ahead
         // with broken TELNET peers (seems nearly ubiquitous),
@@ -1572,8 +1575,6 @@ class Net_Telnet
      * @todo: document $args
      */
     function login($args=null,$arg2=null) {
-        $retval = "";
-
         if (is_string($args)) {
             $this->login['login'] = $args;
             $this->debug("login set to ".$args);
@@ -1636,13 +1637,11 @@ class Net_Telnet
             $this->debug("login: waiting for login prompt:  "
                 . $this->login['login_prompt']);
 
-            if (($ret = $this->waitfor($this->login['login_prompt'])) === false)
+            $l = (array_key_exists('login', $this->login) ? 
+                $this->login['login'] : '');
+
+            if ($this->expect($this->login['login_prompt'], $l."\r\n") === false)
                 throw new Exception ("login: failed to find login prompt");
-
-            $retval .= $ret;
-
-            if (array_key_exists('login', $this->login))
-                $this->println($this->login['login']);
         }
 
 
@@ -1659,27 +1658,55 @@ class Net_Telnet
             $this->debug("login: waiting for password prompt:  "
                 . $this->login['password_prompt']);
 
-            if (($ret = $this->waitfor($this->login['password_prompt'])) === false)
+            $p = (array_key_exists('password', $this->login) ? 
+                $this->login['password'] : '');
+
+            if ($this->expect($this->login['password_prompt'], $p."\r\n") === false)
                 throw new Exception ("login: failed to find password prompt");
-
-            $retval .= $ret;
-        }
-
-        if (array_key_exists('password', $this->login)) {
-            $this->debug("login: sending password");
-            $this->println($this->login['password']);
         }
 
         if (array_key_exists('login_success', $this->login)
             && strlen($this->login['login_success']) > 0
-            && $this->login['login_success'] != $this->prompt) {
-            $this->debug("login: waiting for login success prompt:  "
-                . $this->login['login_success']);
+            && $this->login['login_success'] != $this->prompt)
+        {
 
-            if (($ret = $this->waitfor($this->login['login_success'])) === false)
-                throw new Exception ("login: failed to login successfully");
+            if (array_key_exists('login_fail', $this->login)
+                && strlen($this->login['login_fail']) > 0) {
+                $this->debug("login: looking for login success or fail prompt");
 
-            $retval .= $ret;
+                $prompts = array(
+                    $this->login['login_success'],
+                    $this->login['login_fail'],
+                );
+            } else {
+                $this->debug("login: looking for login success prompt");
+
+                $prompts = array(
+                    $this->login['login_success'],
+                );
+            }
+
+            if (($ret = $this->read_stream($prompts)) === false)
+                throw new Exception ("login: failed to complete login");
+
+            if ($this->lastmatch == $this->login['login_success'])
+                $this->debug("login: login was successful");
+            else if ($this->lastmatch == $this->login['login_fail'])
+                throw new Exception ("login: login failed");
+
+        } else if (array_key_exists('login_fail', $this->login)
+            && strlen($this->login['login_fail']) > 0)
+        {
+            $this->debug("login: looking for login fail prompt");
+            $prompts = array( $this->login['login_fail'],);
+
+            if (($ret = $this->read_stream($prompts)) === false)
+                throw new Exception ("login: failed to complete login");
+
+            if ($this->lastmatch == $this->login['login_fail'])
+                throw new Exception ("login: login failed");
+            else
+                $this->debug("login: login appears successful");
         }
 
         $this->debug("login: waiting for command prompt: {$this->prompt}");
@@ -1688,11 +1715,9 @@ class Net_Telnet
             throw new Exception ("login: error in telnet session,"
                 . " didn't find prompt (failed login?)");
 
-        $retval .= $ret;
-
         $this->debug("login: we appear to be logged in.");
 
-        return $retval;
+        return $ret;
     }
 
 }
