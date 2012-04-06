@@ -779,11 +779,11 @@ class Net_Telnet
                 $this->debug("> ". $TELCMDS[$cmd] ." ". $TELOPTS[$opt]);
 
                 $this->telcmds['sent'][$opt][$cmd] = true;
-                $this->send(TEL_IAC.$cmd.$opt, false, false);
+                $this->put_data(TEL_IAC.$cmd.$opt, false, false);
                 break;
             case TEL_NOP:
                 $this->debug("> ". $TELCMDS[$cmd]);
-                $this->send(TEL_IAC.$cmd.$opt, false, false);
+                $this->put_data(TEL_IAC.$cmd.$opt, false, false);
                 break;
             case TEL_SB:
                 if (! TELOPT_OK($opt))
@@ -795,7 +795,7 @@ class Net_Telnet
                 $data = preg_replace('/\xff/', "\xff\xff", $data);
 
                 $this->telcmds['sent_opts'][$opt][$cmd]=$data;
-                $this->send(TEL_IAC.TEL_SB.$opt.$data.TEL_IAC.TEL_SE, false, false);
+                $this->put_data(TEL_IAC.TEL_SB.$opt.$data.TEL_IAC.TEL_SE, false, false);
                 break;
             case TEL_SE:
                 throw new Exception("don't send SE, send SB and I'll add the SE");
@@ -874,10 +874,11 @@ class Net_Telnet
                         if ($this->mode['telnet_bugs'] && ! $this->mode['tx_sga']) {
                             $this->debug("Enabling Suppress Go Ahead (SGA) on Transmit");
                             $this->mode['tx_sga'] = true;
+
+                            if (! array_key_exists(TEL_WILL, $this->telcmds['sent'][$opt]))
+                                $this->send_telcmd(TEL_WILL, $opt);
                         }
 
-                        if (! array_key_exists(TEL_WILL, $this->telcmds['sent'][$opt]))
-                            $this->send_telcmd(TEL_WILL, $opt);
 
                         if (! array_key_exists(TEL_DO, $this->telcmds['sent'][$opt]))
                             $this->send_telcmd(TEL_DO, $opt);
@@ -900,10 +901,13 @@ class Net_Telnet
                 switch ($opt)
                 {
                     case TELOPT_BINARY:
-                        if ($this->mode['rx_binmode']) {
-                            $this->mode['rx_binmode'] = false;
-                            $this->debug("Disabling Binary Mode on receive");
-                        }
+                        if (! $this->mode['rx_binmode']) { continue; }
+
+                        $this->debug("Disabling Binary Mode on receive");
+                        $this->mode['rx_binmode'] = false;
+
+                        if (! array_key_exists(TEL_DONT, $this->telcmds['sent'][$opt]))
+                            $this->send_telcmd(TEL_DONT, $opt);
                         break;
                     case TELOPT_ECHO:
                         if (! $this->mode['echo_remote']) { continue; }
@@ -915,16 +919,19 @@ class Net_Telnet
                                 $this->mode['echo_local'] = true;
                                 break;
                         }
+
+                        if (! array_key_exists(TEL_DONT, $this->telcmds['sent'][$opt]))
+                            $this->send_telcmd(TEL_DONT, $opt);
                         break;
                     case TELOPT_SGA:
-                        if (! $this->mode['rx_sga'])
-                            $this->debug("Disabling Suppress Go Ahead (SGA) on Receive");
+                        if (! $this->mode['rx_sga']) { continue; }
 
+                        $this->debug("Disabling Suppress Go Ahead (SGA) on Receive");
                         $this->mode['rx_sga'] = false;
 
                         if ($this->mode['echo_remote']) {
                             $this->debug("Disabling Remote Echo");
-                            $this->send_telcmd(TEL_DONT, $opt);
+                            $this->send_telcmd(TEL_DONT, TELOPT_ECHO);
                             $this->mode['echo_remote'] = false;
 
                             if ($this->mode['echomode'] == "remote") {
@@ -937,7 +944,13 @@ class Net_Telnet
                             $this->debug("Disabling Suppress Go Ahead (SGA) on Transmit"
                                 . " (workaround for broken TELNETs)");
                             $this->mode['tx_sga'] = false;
+
+                            if (! array_key_exists(TEL_WONT, $this->telcmds['sent'][$opt]))
+                                $this->send_telcmd(TEL_WONT, $opt);
                         }
+
+                        if (! array_key_exists(TEL_DONT, $this->telcmds['sent'][$opt]))
+                            $this->send_telcmd(TEL_DONT, $opt);
                         break;
                     case TELOPT_STATUS:
                     case TELOPT_TM:
@@ -998,6 +1011,8 @@ class Net_Telnet
                             $this->debug("Enabling Suppress Go Ahead (SGA) on Receive"
                                 . " (workaround for broken TELNETs)");
                             $this->mode['rx_sga'] = true;
+                            if (! array_key_exists(TEL_DO, $this->telcmds['sent'][$opt]))
+                                $this->send_telcmd(TEL_DO, $opt);
                         }
 
                         if (! array_key_exists(TEL_WILL, $this->telcmds['sent'][$opt]))
@@ -1025,32 +1040,50 @@ class Net_Telnet
                 switch ($opt)
                 {
                     case TELOPT_BINARY:
-                        if ($this->mode['tx_binmode']) {
-                            $this->mode['tx_binmode'] = false;
-                            $this->debug("Disabling Binary Mode on transmit");
-                        }
+                        if (! $this->mode['tx_binmode']) { continue; }
+
+                        $this->debug("Disabling Binary Mode on transmit");
+                        $this->mode['tx_binmode'] = false;
+
+                        if (! array_key_exists(TEL_WONT, $this->telcmds['sent'][$opt]))
+                            $this->send_telcmd(TEL_WONT, $opt);
                         break;
                     case TELOPT_ECHO:
-                        if ($this->mode['echo_net']) {
-                            $this->debug("Disabling Local Network Echo");
-                            $this->mode['echo_net'] = false;
+                        if (! $this->mode['echo_net']) { continue; }
 
-                            if (! array_key_exists(TEL_WONT, $this->telcmds['sent'][$opt]))
-                                $this->send_telcmd(TEL_WONT, $opt);
-                        }
+                        $this->debug("Disabling Local Network Echo");
+                        $this->mode['echo_net'] = false;
+
+                        if (! array_key_exists(TEL_WONT, $this->telcmds['sent'][$opt]))
+                            $this->send_telcmd(TEL_WONT, $opt);
                         break;
                     case TELOPT_SGA:
-                        if ($this->mode['tx_sga'])
-                            $this->debug("Disabling Suppress Go Ahead (SGA) on Transmit");
+                        if (! $this->mode['tx_sga']) { continue; }
 
+                        $this->debug("Disabling Suppress Go Ahead (SGA) on Transmit");
                         $this->mode['tx_sga'] = false;
 
                         if ($this->mode['telnet_bugs'] && $this->mode['rx_sga']) {
                             $this->debug("Disabling Suppress Go Ahead (SGA) on Receive"
                                 . " (workaround for broken TELNETs)");
                             $this->mode['rx_sga'] = false;
+                            if (! array_key_exists(TEL_DONT, $this->telcmds['sent'][$opt]))
+                                $this->send_telcmd(TEL_DONT, $opt);
+
+                            if ($this->mode['echo_remote']) {
+                                $this->debug("Disabling Remote Echo");
+                                $this->send_telcmd(TEL_DONT, TELOPT_ECHO);
+                                $this->mode['echo_remote'] = false;
+
+                                if ($this->mode['echomode'] == "remote") {
+                                    $this->debug("Enabling Local Echo");
+                                    $this->mode['echo_local'] = true;
+                                }
+                            }
                         }
 
+                        if (! array_key_exists(TEL_WONT, $this->telcmds['sent'][$opt]))
+                            $this->send_telcmd(TEL_WONT, $opt);
                         break;
                     case TELOPT_STATUS:
                     case TELOPT_TM:
@@ -1140,6 +1173,7 @@ class Net_Telnet
      * @param string $data  String to be written
      * @param boolean $esc  escape special chars in data or not
      * @param boolean $echo echo chars when in echo_local mode
+     * @returns integer     number of bytes written to network
      */
     function put_data ($data, $esc=true, $echo=true) {
         if ($this->mode['telnet'] && $esc && ! $this->mode['tx_binmode'])
@@ -1154,8 +1188,7 @@ class Net_Telnet
         $this->writebuf .= $data;
 
         // If using remote echo, flush the network buffer
-        if ($this->mode['echo_remote'])
-            $this->net_write();
+        return $this->mode['echo_remote'] ? $this->net_write() : 0;
     }
 
     /**
@@ -1273,52 +1306,64 @@ class Net_Telnet
             throw new Exception("expect called with invalid input");
 
         if (count($args) == 1 && (strlen(key($args)) == 0)) {
+            $this->debug("expect: reading stream, with nothing to watch for");
             if ($this->read_stream() === false)
                 return false;
-            $this->send(current($args));
-            return ($this->read_stream()) ? true : false;
+            return $this->send(current($args));
         }
 
         $pats = array();
         foreach ($args as $pat => $cmd) {
-            if (strlen($pat) > 0)
+            if (strlen($pat) > 0) {
+                $this->debug("expect: watching for {$pat}");
                 $pats[] = $pat;
+            }
         }
 
         if (count($pats) == 0)
             throw new Exception("expect called with invalid input");
 
-        if ($this->read_stream($pats) === false)
+        if ($this->read_stream($pats) === false) {
+            $this->debug("expect: read_stream failed");
             return false;
+        }
 
         if (array_key_exists($this->lastmatch, $args)) {
-            $this->send($args[$this->lastmatch]);
-            return true;
+            $this->debug("expect: read_stream found {$this->lastmatch},"
+               . " sending {$args[$this->lastmatch]}");
+            return $this->send($args[$this->lastmatch]);
         } else
             throw new Exception("expect broke, don't have lastmatch ({$this->lastmatch})");
     }
 
     /**
      * Adds a string to writebuf, escaping special chars,
-     * then flushes network buffer.
+     * flushes writebuf to the network, then calls go_ahead().
      *
-     * This is fairly synonymous with put_data(), primarily
-     * for those using expect() who expect a send().
+     * This is fairly synonymous with put_data() (primarily
+     * for those using expect() who expect a send()), with
+     * the addition of Go Ahead
      *
      * @param string $data  String to be written
      * @param boolean $esc  escape special chars in data or not
      * @param boolean $echo echo chars when in echo_local mode
+     * @returns boolean     false if error detected
      */
-    function send ($data, $esc=true, $echo=true) {
-        $this->put_data($data, $esc, $echo);
+    function send ($data=null, $esc=true, $echo=true) {
+        if (is_null($data) || strlen($data) == 0)
+            return true;
+
+        $ret = true;
+        $written = $this->put_data($data, $esc, $echo);
 
         // go_ahead() can hang writes waiting for Go Ahead
         // with broken TELNET peers (seems nearly ubiquitous),
         // so we'll write first
         if ($this->mode['telnet_bugs'])
-            $this->net_write();
+            $ret = (($written += $this->net_write()) > 0) ? true : false;
 
         $this->go_ahead();
+        return $ret;
     }
 
     /**
@@ -1390,6 +1435,8 @@ class Net_Telnet
 
         if (! is_array($searchfor))
             $searchfor = array( $searchfor );
+
+        $this->lastmatch = null;
 
         while (!$found && ! feof($this->s)
             && (! (intval($numbytes) > 0 && strlen($buf) >= intval($numbytes))))
@@ -1550,9 +1597,15 @@ class Net_Telnet
 
         $this->userbuf .= $buf;
 
-        if ($drain || (count($searchfor) == 0 && intval($numbytes) > 0 
-                        && strlen($buf) >= intval($numbytes)))
+        if ($drain
+            || (count($searchfor) == 0 && (intval($numbytes) == 0)
+                && (intval($timeout) > 0))
+            || (count($searchfor) == 0 && (intval($numbytes) > 0)
+                && strlen($buf) >= intval($numbytes))
+           )
+        {
             $found = true;
+        }
 
         $info = stream_get_meta_data($s);
         if ($info['eof']) {
@@ -1621,8 +1674,20 @@ class Net_Telnet
             }
         }
 
-        if ($this->s === null)
+        if ((! array_key_exists('login_success', $this->login))
+            || (strlen($this->login['login_success']) == 0)) {
+            if (strlen($this->prompt) == 0)
+                throw new Exception("login usage error:  "
+                    . "need to set login_success and/or command prompt");
+            $this->debug("login_success defaulting to ".$this->login['login_prompt']);
+            $this->login['login_success'] = $this->prompt;
+        }
+
+        if (! $this->online())
             $this->connect();
+
+        if ($this->net_write() === false)
+                throw new Exception ("login: error with network socket");
 
         if (array_key_exists('login_prompt', $this->login)
             && strlen($this->login['login_prompt']) > 0)
@@ -1640,7 +1705,7 @@ class Net_Telnet
             $l = (array_key_exists('login', $this->login) ? 
                 $this->login['login'] : '');
 
-            if ($this->expect($this->login['login_prompt'], $l."\r\n") === false)
+            if ($this->expect($this->login['login_prompt'], $l."\r") === false)
                 throw new Exception ("login: failed to find login prompt");
         }
 
@@ -1661,59 +1726,42 @@ class Net_Telnet
             $p = (array_key_exists('password', $this->login) ? 
                 $this->login['password'] : '');
 
-            if ($this->expect($this->login['password_prompt'], $p."\r\n") === false)
+            if ($this->expect($this->login['password_prompt'], $p."\r") === false)
                 throw new Exception ("login: failed to find password prompt");
         }
 
-        if (array_key_exists('login_success', $this->login)
-            && strlen($this->login['login_success']) > 0
-            && $this->login['login_success'] != $this->prompt)
-        {
+        if (array_key_exists('login_fail', $this->login)
+            && strlen($this->login['login_fail']) > 0) {
+            $this->debug("login: looking for login success or fail prompt");
 
-            if (array_key_exists('login_fail', $this->login)
-                && strlen($this->login['login_fail']) > 0) {
-                $this->debug("login: looking for login success or fail prompt");
+            $prompts = array(
+                $this->login['login_success'],
+                $this->login['login_fail'],
+            );
+        } else {
+            $this->debug("login: looking for login success prompt");
 
-                $prompts = array(
-                    $this->login['login_success'],
-                    $this->login['login_fail'],
-                );
-            } else {
-                $this->debug("login: looking for login success prompt");
-
-                $prompts = array(
-                    $this->login['login_success'],
-                );
-            }
-
-            if (($ret = $this->read_stream($prompts)) === false)
-                throw new Exception ("login: failed to complete login");
-
-            if ($this->lastmatch == $this->login['login_success'])
-                $this->debug("login: login was successful");
-            else if ($this->lastmatch == $this->login['login_fail'])
-                throw new Exception ("login: login failed");
-
-        } else if (array_key_exists('login_fail', $this->login)
-            && strlen($this->login['login_fail']) > 0)
-        {
-            $this->debug("login: looking for login fail prompt");
-            $prompts = array( $this->login['login_fail'],);
-
-            if (($ret = $this->read_stream($prompts)) === false)
-                throw new Exception ("login: failed to complete login");
-
-            if ($this->lastmatch == $this->login['login_fail'])
-                throw new Exception ("login: login failed");
-            else
-                $this->debug("login: login appears successful");
+            $prompts = array(
+                $this->login['login_success'],
+            );
         }
 
-        $this->debug("login: waiting for command prompt: {$this->prompt}");
+        if (($ret = $this->read_stream($prompts)) === false)
+            throw new Exception ("login: failed to complete login");
 
-        if (($ret = $this->waitfor($this->prompt)) === false)
-            throw new Exception ("login: error in telnet session,"
-                . " didn't find prompt (failed login?)");
+        if ($this->lastmatch == $this->login['login_success'])
+            $this->debug("login: login was successful");
+        else if ($this->lastmatch == $this->login['login_fail'])
+            throw new Exception ("login: login failed");
+
+        if ($this->login['login_success'] != $this->prompt) {
+            $this->debug("login: waiting for command prompt: {$this->prompt}");
+
+            if (($ret = $this->waitfor($this->prompt)) === false)
+                throw new Exception ("login: error in telnet session,"
+                    . " didn't find prompt (failed login?)");
+        } else
+            $ret = $this->get_data();
 
         $this->debug("login: we appear to be logged in.");
 
