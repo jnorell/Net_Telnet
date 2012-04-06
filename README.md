@@ -35,6 +35,7 @@ add a listen() function).
         echo $t->login( array(
             'login_prompt'  => '',
             'login_success' => '',
+            'login_fail'    => '% Access denied',
             'login'         => '',
             'password'      => 'cisco_password',
             'prompt'        => 'Cisco>',
