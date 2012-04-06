@@ -45,6 +45,7 @@ try {
     echo $t->login( array(
         'login_prompt'  => '',
         'login_success' => '',
+        'login_fail'    => '% Access denied',
         'login'         => '',
         'password'      => $password,
         'prompt'        => "{$router}>",
@@ -62,6 +63,7 @@ try {
 
     # reuse login() to send enable secret
     echo $t->login( array(
+        'login_success' => '',  // reset from previous call
         'password'      => $enable_secret,
         'prompt'        => "{$router}#",
         )

@@ -41,6 +41,7 @@ try {
         'login_prompt'      =>  'Login: ',
         'password_prompt'   =>  'Password: ',
         'login_success'     =>  'Login successful',
+        'login_fail'        =>  'Login failed',
         'prompt'            =>  '-->',
         'debug'             =>  false,
     ));
