@@ -2,7 +2,7 @@
 /* vim: set expandtab softtabstop=4 tabstop=4 shiftwidth=4: */
 
 /**
- * Net_Telnet provides an implimentation of the TELNET protocol.
+ * Net_Telnet provides an implementation of the TELNET protocol.
  *
  * PHP version 5
  *
@@ -32,7 +32,7 @@
  * @license     http://www.apache.org/licenses/LICENSE-2.0 Apache License
  * @link        https://github.com/jnorell/Net_Telnet
  *
- * @example     telnet.php  A basic implementation of the Telnet package.
+ * @example     telnet.php  A basic line-mode telnet client using Net_Telnet
  */
 
 
@@ -221,7 +221,7 @@ define('LFLOW_RESTART_XON', chr(3));    /* Restart output only on XON */
 
 
 /**
- * Net_Telnet provides an implimentation of the TELNET protocol.
+ * Net_Telnet provides an implementation of the TELNET protocol.
  *
  * This has been used for short-running scripts, eg. login and reboot
  * a device, I don't know how it would fair in handling long-running
@@ -357,9 +357,9 @@ class Net_Telnet
         switch ($this->debugfmt)
         {
             case 'html':
-                echo '<b class="telnet_debug_msg">'
+                echo '<span class="telnet_debug_msg">'
                     . htmlspecialchars($str)
-                    . '<br />\n</b>';
+                    . '</span>';
                 break;
             case 'txt':
             default:
