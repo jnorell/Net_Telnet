@@ -392,6 +392,12 @@ class Net_Telnet
             $this->host = $opts;
             $this->debug("host set to ".$this->host);
         } else if (is_array($opts)) {
+            if (array_key_exists('debugfmt', $opts)) {
+                $this->debugfmt = $opts['debugfmt'];
+                $this->debug("prompt "
+                    . (strlen($this->debugfmt) > 0 ? "set to {$this->debugfmt}" : "unset"));
+            }
+
             if (array_key_exists('debug', $opts))
                 $this->mode['debug'] = ($opts['debug']) ? true : false;
 
@@ -451,12 +457,6 @@ class Net_Telnet
                 $this->prompt = $opts['prompt'];
                 $this->debug("prompt "
                     . (strlen($this->prompt) > 0 ? "set to {$this->prompt}" : "unset"));
-            }
-
-            if (array_key_exists('debugfmt', $opts)) {
-                $this->debugfmt = $opts['debugfmt'];
-                $this->debug("prompt "
-                    . (strlen($this->debugfmt) > 0 ? "set to {$this->debugfmt}" : "unset"));
             }
 
             if (array_key_exists('pager', $opts)) {
@@ -657,7 +657,7 @@ class Net_Telnet
                 $this->debug("disconnect: {$e}");
             }
             $this->debug("closing network socket");
-            if (fclose($this->s) === false)
+            if (($this->s !== null) && (fclose($this->s) === false))
                 throw new Exception("error closing socket");
             $this->s = null;
         }
