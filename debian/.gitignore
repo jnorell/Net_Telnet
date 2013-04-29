@@ -1,0 +1,5 @@
+files
+php-net-telnet.debhelper.log
+php-net-telnet.*.debhelper
+php-net-telnet.substvars
+php-net-telnet/

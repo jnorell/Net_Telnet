@@ -1,0 +1,2 @@
+version=3
+https://github.com/jnorell/Net_Telnet/tags .*/v?(\d[\d\.]+)\.tar\.gz

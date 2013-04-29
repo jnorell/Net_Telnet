@@ -1,0 +1,5 @@
+php-net-telnet (0.1-1) unstable; urgency=low
+
+  * Initial release (Closes: #706404).
+
+ -- Jesse Norell <jesse@kci.net>  Mon, 29 Apr 2013 12:32:06 -0600

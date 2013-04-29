@@ -1,0 +1,18 @@
+Source: php-net-telnet
+Maintainer: Jesse Norell <jesse@kci.net>
+Section: php
+Priority: optional
+Standards-Version: 3.9.3
+Build-Depends: debhelper (>= 9)
+Homepage: https://github.com/jnorell/Net_Telnet
+Vcs-Browser: https://github.com/jnorell/Net_Telnet
+Vcs-Git: https://github.com/jnorell/Net_Telnet.git
+
+Package: php-net-telnet
+Architecture: all
+Depends: ${misc:Depends}, php5 | php5-cli
+Description: Provides a PHP implementation of the TELNET protocol
+ php-net-telnet provides Net_Telnet, a PHP implementation of the TELNET
+ protocol.  It has been used to create simple telnet scripts for
+ administrative tasks, both in command-line and in http server (Apache)
+ environments.
