@@ -383,7 +383,7 @@ class Net_Telnet
     function __construct($opts=null) {
         $auto_connect=false;
 
-        if ($val = intval(ini_get('default_socket_timeout')) > 0) {
+        if (($val = intval(ini_get('default_socket_timeout'))) > 0) {
             $this->timeout = $val;
             $this->debug("timeout set to ".$this->timeout);
         }
