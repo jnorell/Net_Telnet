@@ -383,6 +383,12 @@ class Net_Telnet
     function __construct($opts=null) {
         $auto_connect=false;
 
+        if (is_array($opts) && array_key_exists('debug', $opts))
+            $this->mode['debug'] = ($opts['debug']) ? true : false;
+
+        $this->debug("debug set "
+            . ($this->mode['debug'] ? "on" : "off"));
+
         if (($val = intval(ini_get('default_socket_timeout'))) > 0) {
             $this->timeout = $val;
             $this->debug("timeout set to ".$this->timeout);
@@ -397,12 +403,6 @@ class Net_Telnet
                 $this->debug("prompt "
                     . (strlen($this->debugfmt) > 0 ? "set to {$this->debugfmt}" : "unset"));
             }
-
-            if (array_key_exists('debug', $opts))
-                $this->mode['debug'] = ($opts['debug']) ? true : false;
-
-            $this->debug("debug set "
-                . ($this->mode['debug'] ? "on" : "off"));
 
             if (array_key_exists('host', $opts)) {
                 $this->host = $opts['host'];
