@@ -1001,6 +1001,7 @@ class Net_Telnet
                         if (! array_key_exists(TEL_WILL, $this->telcmds['sent'][$opt]))
                             $this->send_telcmd(TEL_WILL, $opt);
                         
+                        break;
                     case TELOPT_SGA:
                         if ($this->mode['tx_sga']) { continue; }
 
